@@ -1,17 +1,17 @@
 // Assembly implementation for Windows AArch64 (ARM64) ABI
 
 .text
-.global _prefetch
+.global prefetch // Remove leading underscore
 .align 2
-_prefetch:
+prefetch: // Remove leading underscore
     // Prefetch for load, targeting L1 cache, keep data
     prfm pldl1keep, [x0]
     ret
 
 .text
-.global _bootstrap_green_task
+.global bootstrap_green_task // Remove leading underscore
 .align 2
-_bootstrap_green_task:
+bootstrap_green_task: // Remove leading underscore
     // Move arguments from temporary registers (x19, x20) to argument registers (x0, x1)
     // according to Windows AArch64 ABI.
     mov x0, x19  // First argument
@@ -25,9 +25,9 @@ _bootstrap_green_task:
     br x21
 
 .text
-.global _swap_registers
+.global swap_registers // Remove leading underscore
 .align 2
-_swap_registers:
+swap_registers: // Remove leading underscore
     // x0 = out_regs (pointer to Registers struct to save current context)
     // x1 = in_regs (pointer to Registers struct to load new context)
 
