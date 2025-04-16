@@ -126,9 +126,9 @@ unsafe fn context_init(parent: &mut Context, context: &mut CONTEXT) {
     // They are typically stored as the lower 64 bits (D[0]) of V[8] through V[15].
     let fp_regs_src_ptr = saved_regs_array.as_ptr().add(13); // Pointer to the start of saved d8-d15 data (index 13 in our array)
 
-    // Get a mutable pointer to the start of the V array (Neon128) within CONTEXT.
-    // Correcting the path based on compiler error - trying context.Anonymous.V
-    let v_array_ptr = context.Anonymous.X.as_mut_ptr();
+    // Get a mutable pointer to the start of the Neon128 array within CONTEXT.
+    // Correcting the path again - trying context.Anonymous.Anonymous.Neon128
+    let v_array_ptr = context.Anonymous.Anonymous.Neon128.as_mut_ptr();
 
     // Copy d8-d15 data into the lower 64 bits (D[0]) of V[8]-V[15]
     for i in 0..8 {
