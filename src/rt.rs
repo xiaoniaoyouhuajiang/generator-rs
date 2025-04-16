@@ -285,8 +285,10 @@ pub mod guard {
     use crate::stack::sys::page_size;
     use std::ops::Range;
 
+    #[allow(dead_code)] // Allow dead code for this type alias
     pub type Guard = Range<usize>;
 
+    #[allow(dead_code)]
     pub fn current() -> Guard {
         assert!(is_generator());
         let guard = unsafe { (*(*ContextStack::current().root).child).stack_guard };

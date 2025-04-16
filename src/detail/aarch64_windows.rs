@@ -1,8 +1,7 @@
 use crate::detail::align_down;
 use crate::stack::Stack;
 
-// Include the assembly file
-std::arch::global_asm!(include_str!("asm/asm_aarch64_aapcs_pe.S"));
+// Remove global_asm! include. Assembly will be linked via build.rs + cc crate.
 
 // Define the function pointer type for the entry point
 // ABI is likely "C", but needs verification for Windows AArch64 specifically.

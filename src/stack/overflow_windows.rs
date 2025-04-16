@@ -1,6 +1,10 @@
-use crate::rt::{guard, Context, ContextStack};
+// Conditionally import guard only when needed (currently x86_64)
+#[cfg(target_arch = "x86_64")]
+use crate::rt::guard;
+use crate::rt::{Context, ContextStack}; // Keep these imports
 use std::sync::Once;
-use windows::Win32::Foundation::EXCEPTION_STACK_OVERFLOW;
+// Import STATUS_GUARD_PAGE_VIOLATION instead of EXCEPTION_STACK_OVERFLOW
+use windows::Win32::Foundation::STATUS_GUARD_PAGE_VIOLATION;
 use windows::Win32::System::Diagnostics::Debug::{
     AddVectoredExceptionHandler, CONTEXT, EXCEPTION_POINTERS,
 };
@@ -11,22 +15,40 @@ unsafe extern "system" fn vectored_handler(exception_info: *mut EXCEPTION_POINTE
 
     let info = &*exception_info;
     let rec = &(*info.ExceptionRecord);
+    eprintln!("[vectored_handler] Entered!"); // Log handler entry
+
+    eprintln!("[vectored_handler] Entered!"); // Log handler entry
+
+    eprintln!("[vectored_handler] Entered!"); // Log handler entry
+
     let context = &mut (*info.ContextRecord);
 
-    // Use #[cfg] for architecture-specific checks
-    #[cfg(target_arch = "x86_64")]
-    let sp_match = guard::current().contains(&(context.Rsp as usize));
-    #[cfg(target_arch = "aarch64")]
-    let sp_match = guard::current().contains(&(context.Sp as usize));
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    let sp_match = {
-        unimplemented!("Stack overflow handling not implemented for this architecture");
-        false // To satisfy type checker, though unreachable
+    // Calculate is_overflow within architecture-specific blocks
+    let is_overflow = {
+        #[cfg(target_arch = "x86_64")]
+        {
+            // Calculate and use sp_match only for x86_64
+            let sp_match = guard::current().contains(&(context.Rsp as usize));
+            eprintln!("[vectored_handler] ExceptionCode: {:?}, (sp_match: {})", rec.ExceptionCode, sp_match);
+            rec.ExceptionCode == STATUS_GUARD_PAGE_VIOLATION && sp_match
+        }
+        #[cfg(target_arch = "aarch64")]
+        {
+            // Only check exception code for aarch64
+            eprintln!("[vectored_handler] ExceptionCode: {:?}", rec.ExceptionCode);
+            rec.ExceptionCode == STATUS_GUARD_PAGE_VIOLATION
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            eprintln!("[vectored_handler] ExceptionCode: {:?}", rec.ExceptionCode);
+            unimplemented!("Stack overflow handling not implemented for this architecture");
+            false
+        }
     };
 
-
-    if rec.ExceptionCode == EXCEPTION_STACK_OVERFLOW && sp_match
+    if is_overflow
     {
+        eprintln!("[vectored_handler] Guard page violation detected (assuming generator stack overflow)!"); // Log detection
         eprintln!(
             "\ncoroutine in thread '{}' has overflowed its stack\n",
             std::thread::current().name().unwrap_or("<unknown>")
@@ -36,7 +58,9 @@ unsafe extern "system" fn vectored_handler(exception_info: *mut EXCEPTION_POINTE
         let cur = env.top();
         cur.err = Some(Box::new(crate::Error::StackErr));
 
+        eprintln!("[vectored_handler] Calling context_init..."); // Log before call
         context_init(env.pop_context(cur as *mut _), context);
+        eprintln!("[vectored_handler] Returned from context_init."); // Log after call
 
         //yield_now();
 
@@ -47,7 +71,14 @@ unsafe extern "system" fn vectored_handler(exception_info: *mut EXCEPTION_POINTE
 }
 
 unsafe fn init() {
-    AddVectoredExceptionHandler(1, Some(vectored_handler));
+    eprintln!("[overflow_windows] Registering vectored handler..."); // Log registration attempt
+    let handle = AddVectoredExceptionHandler(1, Some(vectored_handler));
+    if handle.is_null() {
+        eprintln!("[overflow_windows] Failed to register vectored handler!");
+    } else {
+        eprintln!("[overflow_windows] Vectored handler registered.");
+        // In a real application, you might want to store and remove the handle later.
+    }
 }
 
 pub fn init_once() {
@@ -126,18 +157,18 @@ unsafe fn context_init(parent: &mut Context, context: &mut CONTEXT) {
     // They are typically stored as the lower 64 bits (D[0]) of V[8] through V[15].
     let fp_regs_src_ptr = saved_regs_array.as_ptr().add(13); // Pointer to the start of saved d8-d15 data (index 13 in our array)
 
-    // Get a mutable pointer to the start of the Neon128 array within CONTEXT.
-    // Correcting the path again - trying context.Anonymous.Anonymous.Neon128
-    let v_array_ptr = context.Anonymous.Anonymous.Neon128.as_mut_ptr();
+    // Get a mutable pointer to the start of the V array (ARM64_NT_NEON128) directly under CONTEXT.
+    let v_array_ptr = context.V.as_mut_ptr();
 
     // Copy d8-d15 data into the lower 64 bits (D[0]) of V[8]-V[15]
     for i in 0..8 {
         // Calculate source pointer (saved_regs_array[13+i])
-        let src = fp_regs_src_ptr.add(i) as *const u64;
+        let src_ptr = fp_regs_src_ptr.add(i) as *const u64;
         // Calculate destination pointer (context.V[8+i].D[0])
-        // Need to cast V[n] pointer to access D[0] as u64 pointer
-        let dst = v_array_ptr.add(8 + i).cast::<[u64; 2]>().cast::<u64>(); // V[8+i].D[0]
-        std::ptr::copy_nonoverlapping(src, dst, 1); // Copy 1 * u64
+        // Access V[8+i], then its D field (which is [f64; 2]), then the first element D[0].
+        // We need a mutable pointer to the f64, then cast it to u64 for the copy.
+        let dst_ptr = unsafe { (*v_array_ptr.add(8 + i)).D.as_mut_ptr().cast::<u64>() }; // Pointer to V[8+i].D[0] as u64
+        std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, 1); // Copy 1 * u64
     }
 
 
